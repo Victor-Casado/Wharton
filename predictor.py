@@ -91,16 +91,13 @@ extra_features = set(east_games_merged.columns) - set(X.columns)
 #print("Extra in prediction data:", extra_features)
 
 
-predictions = model.predict(east_games_merged[X.columns])
+predictions_proba = model.predict_proba(east_games_merged[X.columns])
 
 
-
-east_games_info["Predicted_Label"] = predictions
-east_games_info["Predicted_Winner"] = east_games_info.apply(
-    lambda x: x['team_home'] if x["Predicted_Label"] == 1 else x['team_away'], axis=1
-)
+east_games_info["Team_Home_Win_Percentage"] = predictions_proba[:, 1] * 100
+east_games_info["Team_Away_Win_Percentage"] = predictions_proba[:, 0] * 100
 
 # Optionally, save the predictions
-east_games_info[["game_id", "Predicted_Winner"]].to_csv("East_Regional_Predictions.csv", index=False)
+east_games_info[["game_id", "Team_Home_Win_Percentage", "Team_Away_Win_Percentage"]].to_csv("East_Regional_Predictions.csv", index=False)
 
-print(east_games_info[["game_id", "Predicted_Winner"]])
+print(east_games_info[["game_id", "Team_Home_Win_Percentage", "Team_Away_Win_Percentage"]])
