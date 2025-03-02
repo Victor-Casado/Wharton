@@ -5,23 +5,47 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.metrics import accuracy_score
 import warnings
+import joblib
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 # Load datasets
 games = pd.read_csv("games_2022.csv")
 east_games = pd.read_csv("East Regional Games to predict.csv")
 
-# Merge each game into a single row (home & away in same row)
-games = games.sort_values(by=['game_id', 'team'])
-games_merged = games.groupby('game_id').apply(lambda g: pd.Series({
-    'description': g['game_date'].iloc[0],  # Placeholder for game description
-    'team_home': g['team'].iloc[0], 'team_away': g['team'].iloc[1],
-    'seed_home': g['seed'].iloc[0] if 'seed' in g else np.nan,
-    'seed_away': g['seed'].iloc[1] if 'seed' in g else np.nan,
-    'home_away_NS': g['home_away_NS'].iloc[0],  # Home/Away neutral site
-    'rest_days_Home': g['rest_days'].iloc[0], 'rest_days_Away': g['rest_days'].iloc[1],
-    'travel_dist_Home': g['travel_dist'].iloc[0], 'travel_dist_Away': g['travel_dist'].iloc[1],
-    'winner': g['team'].iloc[0] if g['team_score'].iloc[0] > g['team_score'].iloc[1] else g['team'].iloc[1]
-})).reset_index()
+# Validate that each game has exactly 2 rows
+game_counts = games['game_id'].value_counts()
+if not all(game_counts == 2):
+    raise ValueError("Not every game_id has exactly 2 rows!")
+
+# Split into home and away games based on the 'home_away' column
+home_games = games[games['home_away'].str.lower() == 'home'].copy()
+away_games = games[games['home_away'].str.lower() == 'away'].copy()
+
+if len(home_games) != len(away_games):
+    raise ValueError("Mismatch between number of home and away rows!")
+
+# Merge home and away rows on game_id using suffixes to distinguish columns
+merged = pd.merge(home_games, away_games, on='game_id', suffixes=('_home', '_away'))
+
+# Compute the winner using team scores before dropping these columns
+merged['winner'] = np.where(
+    merged['team_score_home'] > merged['team_score_away'],
+    merged['team_home'],
+    merged['team_away']
+)
+
+# Build the merged DataFrame with the desired columns (including the computed winner)
+games_merged = pd.DataFrame({
+    'game_id': merged['game_id'],
+    'description': merged['game_date_home'],  # using home game's date as description
+    'team_home': merged['team_home'],
+    'team_away': merged['team_away'],
+    'home_away_NS': merged['home_away_NS_home'],  # assume both rows agree on neutral site info
+    'rest_days_Home': merged['rest_days_home'],
+    'rest_days_Away': merged['rest_days_away'],
+    'travel_dist_Home': merged['travel_dist_home'],
+    'travel_dist_Away': merged['travel_dist_away'],
+    'winner': merged['winner']
+})
 
 # One-hot encode team names
 ohe = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
@@ -101,3 +125,8 @@ east_games_info["Team_Away_Win_Percentage"] = predictions_proba[:, 0] * 100
 east_games_info[["game_id", "Team_Home_Win_Percentage", "Team_Away_Win_Percentage"]].to_csv("East_Regional_Predictions.csv", index=False)
 
 print(east_games_info[["game_id", "Team_Home_Win_Percentage", "Team_Away_Win_Percentage"]])
+
+
+# Save the trained model and encoder to disk
+joblib.dump(model, 'model.pkl')
+joblib.dump(ohe, 'encoder.pkl')
